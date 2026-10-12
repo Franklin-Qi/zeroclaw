@@ -3359,6 +3359,14 @@ const WEBP_ANIMATED_SCRATCH_MODEL: AnimationScratchModel = AnimationScratchModel
 fn projected_allocation(source: &str, mime: &str, bytes: &[u8]) -> anyhow::Result<u64> {
     let format = image_format_for_mime(source, mime)?;
 
+    // JPEG's `into_decoder()` copies the encoded input and walks retained
+    // metadata before `Limits` apply. Project from the SOF on the borrowed
+    // bytes instead so admission can refuse oversized images without that
+    // proportional allocation.
+    if format == image::ImageFormat::Jpeg {
+        return projected_jpeg_allocation(source, mime, bytes);
+    }
+
     let mut limits = image::Limits::default();
     limits.max_image_width = Some(MAX_DECODED_IMAGE_DIMENSION);
     limits.max_image_height = Some(MAX_DECODED_IMAGE_DIMENSION);
@@ -3374,8 +3382,8 @@ fn projected_allocation(source: &str, mime: &str, bytes: &[u8]) -> anyhow::Resul
         reason: error.to_string(),
     };
 
-    // Header-only: this parses IHDR / RIFF chunk headers / the GIF screen
-    // descriptor, it does not decode pixels.
+    // Header-only for PNG / GIF / WebP: this parses IHDR / RIFF chunk headers /
+    // the GIF screen descriptor, it does not decode pixels.
     let decoder = reader.into_decoder().map_err(corrupt)?;
     let (width, height) = image::ImageDecoder::dimensions(&decoder);
     let output = image::ImageDecoder::total_bytes(&decoder);
@@ -3437,22 +3445,52 @@ fn projected_allocation(source: &str, mime: &str, bytes: &[u8]) -> anyhow::Resul
                 0
             }
         }
-        image::ImageFormat::Jpeg => {
-            // zune-jpeg's full-image coefficient planes are not visible via
-            // `ImageDecoder::total_bytes`. Use the SOF-derived bound, falling
-            // back to a deliberately expensive estimate when a malformed
-            // header cannot be projected. The latter is only reached for
-            // input that will fail full decode anyway, and ensures it cannot
-            // sneak past the pre-decode per-image cap.
-            jpeg_auxiliary_allocation(bytes, width, height).unwrap_or_else(|| {
-                pixels
-                    .saturating_mul(8)
-                    .saturating_add(u64::from(width).saturating_mul(64).saturating_mul(8))
-            })
-        }
+        // JPEG returns earlier via `projected_jpeg_allocation`.
         _ => 0,
     };
 
+    Ok(output.saturating_add(scratch))
+}
+
+/// Project JPEG decode peak from the SOF without constructing `JpegDecoder`.
+///
+/// `image` 0.25.10's JPEG decoder copies the whole encoded input during
+/// `into_decoder()` (before `Limits`), so admission must not call that path
+/// just to learn dimensions. Output is charged as Rgb8 (3 B/px), the larger of
+/// the two colour types JPEG actually yields here; Luma8 is cheaper.
+fn projected_jpeg_allocation(source: &str, mime: &str, bytes: &[u8]) -> anyhow::Result<u64> {
+    let Some(header) = jpeg_frame_header(bytes) else {
+        return Err(MultimodalError::CorruptImage {
+            input: source.to_string(),
+            mime: mime.to_string(),
+            reason: "JPEG frame header could not be read for admission".into(),
+        }
+        .into());
+    };
+    if header.width == 0
+        || header.height == 0
+        || header.width > MAX_DECODED_IMAGE_DIMENSION
+        || header.height > MAX_DECODED_IMAGE_DIMENSION
+    {
+        return Err(MultimodalError::CorruptImage {
+            input: source.to_string(),
+            mime: mime.to_string(),
+            reason: format!(
+                "JPEG dimensions {}x{} are outside the admission range",
+                header.width, header.height
+            ),
+        }
+        .into());
+    }
+
+    let pixels = u64::from(header.width).saturating_mul(u64::from(header.height));
+    let output = pixels.saturating_mul(3);
+    let scratch =
+        jpeg_auxiliary_allocation(bytes, header.width, header.height).unwrap_or_else(|| {
+            pixels
+                .saturating_mul(8)
+                .saturating_add(u64::from(header.width).saturating_mul(64).saturating_mul(8))
+        });
     Ok(output.saturating_add(scratch))
 }
 
