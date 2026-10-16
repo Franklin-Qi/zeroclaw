@@ -6829,6 +6829,8 @@ pub struct PacingConfig {
     /// Full A↔B tool-name cycles before the first ping-pong Warning. Block
     /// escalates at `min + 1`, Break at `min + 2`. Defaults to 8 so ordinary
     /// multi-file read/write workflows are not aborted at six cycles.
+    /// Runtime raises `loop_detection_window_size` to at least
+    /// `2 * (min + 2)` when needed so Break stays reachable.
     #[serde(default = "default_loop_detection_ping_pong_min_cycles")]
     pub loop_detection_ping_pong_min_cycles: usize,
 }

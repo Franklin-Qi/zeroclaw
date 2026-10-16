@@ -165,11 +165,25 @@ pub struct LoopDetector {
     window: VecDeque<ToolCallRecord>,
 }
 
+/// Calls that must remain in the sliding window for ping-pong Break.
+/// Break fires at `min_cycles + 2` full A↔B cycles ⇒ `2 * (min_cycles + 2)`.
+fn ping_pong_break_window_calls(min_cycles: usize) -> usize {
+    2usize.saturating_mul(min_cycles.max(1).saturating_add(2))
+}
+
 impl LoopDetector {
     pub fn new(config: LoopDetectorConfig) -> Self {
+        // Raise the window when a high ping-pong threshold would otherwise
+        // make Warning/Block/Break unreachable (history too short to see
+        // `2 * (min_cycles + 2)` alternating calls).
+        let min_window = ping_pong_break_window_calls(config.ping_pong_min_cycles);
+        let window_size = config.window_size.max(min_window).max(1);
         Self {
-            window: VecDeque::with_capacity(config.window_size),
-            config,
+            window: VecDeque::with_capacity(window_size),
+            config: LoopDetectorConfig {
+                window_size,
+                ..config
+            },
         }
     }
 
@@ -504,6 +518,30 @@ mod tests {
                 LoopDetectionResult::Ok,
                 "default min cycles must tolerate 6 ping-pong cycles (call {i})"
             );
+        }
+    }
+
+    #[test]
+    fn ping_pong_raises_undersized_window_so_break_stays_reachable() {
+        // A 12-entry window cannot hold Break for min_cycles=8 (needs 20).
+        let mut det = LoopDetector::new(LoopDetectorConfig {
+            window_size: 12,
+            ping_pong_min_cycles: 8,
+            ..Default::default()
+        });
+        let args = json!({});
+        // Warning at 8 cycles (16 calls), Block at 9 (18), Break at 10 (20).
+        let mut last = LoopDetectionResult::Ok;
+        for i in 0..20 {
+            let name = if i % 2 == 0 { "read" } else { "write" };
+            last = det.record(name, &args, &format!("r{i}"));
+        }
+        match last {
+            LoopDetectionResult::Break(msg) => {
+                assert!(msg.contains("read") && msg.contains("write"));
+                assert!(msg.contains("10 cycles"));
+            }
+            other => panic!("expected Break after raised window retained 20 calls, got {other:?}"),
         }
     }
 
