@@ -13877,6 +13877,70 @@ mod tests {
     }
 
     #[test]
+    fn parallel_defer_reason_names_per_sop_limit_when_that_cap_is_full() {
+        // Regression for #9902: filling only the per-SOP cap must name that
+        // limit (with counts), not the global ceiling.
+        let (engine, _) = exec_filled_engine(SopAdmissionPolicy::Parallel);
+        match engine.evaluate_admission("s1") {
+            SopAdmission::Defer { reason } => {
+                assert!(
+                    reason.contains("per-SOP execution slots full"),
+                    "reason must name the per-SOP limit: {reason}"
+                );
+                assert!(
+                    reason.contains("1/1"),
+                    "reason must include the filled per-SOP counts: {reason}"
+                );
+                assert!(
+                    !reason.contains("max_concurrent_total"),
+                    "per-SOP refusal must not blame the global ceiling: {reason}"
+                );
+            }
+            other => panic!("expected Defer, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parallel_defer_reason_names_global_limit_when_only_that_cap_is_full() {
+        // Per-SOP slots remain free; only `max_concurrent_total` is saturated
+        // by a different SOP's run. The refusal must name the global ceiling.
+        let store = std::sync::Arc::new(InMemoryRunStore::new());
+        let mut s1 = test_sop("s1", SopExecutionMode::Auto, SopPriority::Normal);
+        s1.max_concurrent = 5;
+        s1.admission_policy = SopAdmissionPolicy::Parallel;
+        let mut s2 = test_sop("s2", SopExecutionMode::Auto, SopPriority::Normal);
+        s2.max_concurrent = 5;
+        s2.admission_policy = SopAdmissionPolicy::Parallel;
+        let mut engine = SopEngine::new(SopConfig {
+            max_concurrent_total: 1,
+            ..SopConfig::default()
+        })
+        .with_store(store);
+        engine.sops = vec![s1, s2];
+
+        let a = engine.start_run("s1", manual_event()).unwrap();
+        assert!(matches!(a, SopRunAction::ExecuteStep { .. }));
+
+        match engine.evaluate_admission("s2") {
+            SopAdmission::Defer { reason } => {
+                assert!(
+                    reason.contains("max_concurrent_total"),
+                    "reason must name the global ceiling: {reason}"
+                );
+                assert!(
+                    reason.contains("1/1"),
+                    "reason must include the filled global counts: {reason}"
+                );
+                assert!(
+                    !reason.contains("per-SOP"),
+                    "global refusal must not blame the per-SOP limit: {reason}"
+                );
+            }
+            other => panic!("expected Defer, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn drop_policy_drops_when_exec_slots_full() {
         // Explicit opt-in to the legacy fire-and-forget behavior.
         let (engine, _) = exec_filled_engine(SopAdmissionPolicy::Drop);

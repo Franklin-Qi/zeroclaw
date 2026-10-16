@@ -56,7 +56,7 @@ A second ceiling lives on the daemon config, not on the SOP file:
 
 | Config | Default | Effect |
 |---|---:|---|
-| `sop.max_concurrent_total` | `4` | Global cap on *all* SOP runs executing at once across every SOP. A per-SOP `max_concurrent` cannot exceed this in practice: when the global pool is full, further triggers are deferred (or dropped under `admission_policy = "drop"`) even if that SOP still has free slots. Set it with `zeroclaw config set sop.max_concurrent_total <n>` or by editing `[sop]` in `config.toml`. |
+| `sop.max_concurrent_total` | `4` | Global cap on *all* SOP runs executing at once across every SOP. A per-SOP `max_concurrent` cannot exceed this in practice: when the global pool is full, further triggers are deferred under `parallel`/`hold`, dropped under `drop`, or — if this SOP already has an active run — coalesced onto that run under `coalesce` (absorbed, not deferred for retry), even when the SOP still has free per-SOP slots. Set it with `zeroclaw config set sop.max_concurrent_total <n>` or by editing `[sop]` in `config.toml`. |
 
 `zeroclaw sop show` prints both the SOP's declared `max_concurrent` and the
 effective cap `min(max_concurrent, sop.max_concurrent_total)` so the binding
