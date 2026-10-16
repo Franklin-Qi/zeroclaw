@@ -1745,9 +1745,20 @@ impl SopEngine {
                 if exec_slot_free {
                     SopAdmission::Admit
                 } else {
-                    SopAdmission::Defer {
-                        reason: format!("SOP '{sop_name}' execution slots full"),
-                    }
+                    let reason = if exec_for_sop >= sop.max_concurrent as usize {
+                        format!(
+                            "SOP '{sop_name}' per-SOP execution slots full \
+                             ({exec_for_sop}/{})",
+                            sop.max_concurrent
+                        )
+                    } else {
+                        format!(
+                            "SOP '{sop_name}' deferred: global sop.max_concurrent_total \
+                             reached ({exec_total}/{})",
+                            self.config.max_concurrent_total
+                        )
+                    };
+                    SopAdmission::Defer { reason }
                 }
             }
             SopAdmissionPolicy::Hold => {
