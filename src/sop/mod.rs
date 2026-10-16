@@ -316,6 +316,100 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
 
+    fn list_config(install_root: &Path) -> crate::config::Config {
+        let mut config = crate::config::Config {
+            config_path: install_root.join("config.toml"),
+            data_dir: install_root.join("data"),
+            ..crate::config::Config::default()
+        };
+        // Explicit relative dir keeps the fixture under the temp install root.
+        config.sop.sops_dir = Some("shared/sops".into());
+        config
+    }
+
+    fn write_malformed_sop(sops_root: &Path, name: &str) {
+        let bad = sops_root.join(name);
+        fs::create_dir_all(&bad).unwrap();
+        fs::write(
+            bad.join("SOP.toml"),
+            format!(
+                r#"[sop]
+name = "{name}"
+description = "unknown field on a trigger"
+version = "1.0.0"
+
+[[triggers]]
+type = "channel"
+topic = "git.main:pull_request.opened"
+"#
+            ),
+        )
+        .unwrap();
+        fs::write(bad.join("SOP.md"), "- next: done\n").unwrap();
+    }
+
+    fn write_valid_sop(sops_root: &Path, name: &str) {
+        let good = sops_root.join(name);
+        fs::create_dir_all(&good).unwrap();
+        fs::write(
+            good.join("SOP.toml"),
+            format!(
+                r#"[sop]
+name = "{name}"
+description = "a valid SOP"
+version = "1.0.0"
+
+[[triggers]]
+type = "manual"
+"#
+            ),
+        )
+        .unwrap();
+        fs::write(
+            good.join("SOP.md"),
+            r#"# Valid
+
+## Steps
+
+1. **Do work** — Something.
+"#,
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn list_command_errors_when_only_malformed_sops_are_present() {
+        // CLI boundary for #9786: `sop list` must fail closed on load
+        // failures, not exit success after silently dropping them.
+        let tmp = tempfile::tempdir().unwrap();
+        let sops = tmp.path().join("shared").join("sops");
+        write_malformed_sop(&sops, "repro-bad-trigger");
+
+        let err = handle_command(crate::SopCommands::List, &list_config(tmp.path()))
+            .expect_err("malformed-only list must return Err");
+        let message = err.to_string();
+        assert!(
+            message.contains("1 SOP(s) failed to load"),
+            "error must summarize the failure count: {message}"
+        );
+    }
+
+    #[test]
+    fn list_command_errors_when_valid_and_malformed_sops_are_mixed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sops = tmp.path().join("shared").join("sops");
+        write_valid_sop(&sops, "good-sop");
+        write_malformed_sop(&sops, "repro-bad-trigger");
+
+        let err = handle_command(crate::SopCommands::List, &list_config(tmp.path()))
+            .expect_err("mixed list must return Err when any SOP fails to load");
+        let message = err.to_string();
+        assert!(
+            message.contains("1 SOP(s) failed to load"),
+            "error must summarize the failure count: {message}"
+        );
+    }
+
     #[test]
     fn rename_confirmation_string_resolves_with_both_names() {
         // The rename subcommand's only user-facing text. A missing Fluent key
