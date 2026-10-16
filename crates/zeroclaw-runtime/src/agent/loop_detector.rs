@@ -18,6 +18,10 @@ pub struct LoopDetectorConfig {
     pub max_repeats: usize,
     /// How many same-tool/same-result calls before no-progress escalation starts.
     pub no_progress_min_calls: usize,
+    /// Full A↔B cycles before the first ping-pong Warning. Block at
+    /// `min_cycles + 1`, Break at `min_cycles + 2`. Defaults to 8 so a
+    /// normal multi-file read/write workflow is not aborted at six cycles.
+    pub ping_pong_min_cycles: usize,
 }
 
 impl Default for LoopDetectorConfig {
@@ -27,6 +31,7 @@ impl Default for LoopDetectorConfig {
             window_size: 20,
             max_repeats: 3,
             no_progress_min_calls: 5,
+            ping_pong_min_cycles: 8,
         }
     }
 }
@@ -239,11 +244,11 @@ impl LoopDetector {
         }
     }
 
-    /// Pattern 2: Two tools alternating (A->B->A->B) for 4+ full cycles
-    /// (i.e. 8 consecutive entries following the pattern).
+    /// Pattern 2: Two tools alternating (A->B->A->B) for
+    /// [`LoopDetectorConfig::ping_pong_min_cycles`]+ full cycles.
     fn detect_ping_pong(&self) -> Option<LoopDetectionResult> {
-        const MIN_CYCLES: usize = 4;
-        let needed = MIN_CYCLES * 2; // each cycle = 2 calls
+        let min_cycles = self.config.ping_pong_min_cycles.max(1);
+        let needed = min_cycles * 2; // each cycle = 2 calls
 
         if self.window.len() < needed {
             return None;
@@ -271,9 +276,9 @@ impl LoopDetector {
         }
 
         // Count total alternating length for escalation.
-        let mut cycles = MIN_CYCLES;
+        let mut cycles = min_cycles;
         let extended: Vec<&ToolCallRecord> = self.window.iter().rev().collect();
-        for extra_pair in extended.chunks(2).skip(MIN_CYCLES) {
+        for extra_pair in extended.chunks(2).skip(min_cycles) {
             if extra_pair.len() == 2
                 && &extra_pair[0].name == a_name
                 && &extra_pair[1].name == b_name
@@ -284,12 +289,12 @@ impl LoopDetector {
             }
         }
 
-        if cycles >= MIN_CYCLES + 2 {
+        if cycles >= min_cycles + 2 {
             Some(LoopDetectionResult::Break(format!(
                 "Circuit breaker: tools '{}' and '{}' have been alternating for {} cycles",
                 a_name, b_name, cycles
             )))
-        } else if cycles > MIN_CYCLES {
+        } else if cycles > min_cycles {
             Some(LoopDetectionResult::Block(format!(
                 "Blocked: tools '{}' and '{}' have been alternating for {} cycles",
                 a_name, b_name, cycles
@@ -454,9 +459,16 @@ mod tests {
 
     // ── Ping-pong tests ──────────────────────────────────────────
 
+    fn config_with_ping_pong_min_cycles(ping_pong_min_cycles: usize) -> LoopDetectorConfig {
+        LoopDetectorConfig {
+            ping_pong_min_cycles,
+            ..Default::default()
+        }
+    }
+
     #[test]
-    fn ping_pong_warning_at_four_cycles() {
-        let mut det = LoopDetector::new(default_config());
+    fn ping_pong_warning_at_configured_min_cycles() {
+        let mut det = LoopDetector::new(config_with_ping_pong_min_cycles(4));
         let args = json!({});
 
         // 4 full cycles = 8 calls: A B A B A B A B
@@ -479,8 +491,25 @@ mod tests {
     }
 
     #[test]
-    fn ping_pong_escalates_with_more_cycles() {
+    fn ping_pong_default_allows_six_cycles_without_break() {
+        // Regression for #11777: the previous hardcoded threshold aborted at
+        // six A↔B cycles, which blocked ordinary multi-file workflows.
         let mut det = LoopDetector::new(default_config());
+        let args = json!({});
+        for i in 0..(6 * 2) {
+            let name = if i % 2 == 0 { "file_write" } else { "shell" };
+            let result = det.record(name, &args, &format!("r{i}"));
+            assert_eq!(
+                result,
+                LoopDetectionResult::Ok,
+                "default min cycles must tolerate 6 ping-pong cycles (call {i})"
+            );
+        }
+    }
+
+    #[test]
+    fn ping_pong_escalates_with_more_cycles() {
+        let mut det = LoopDetector::new(config_with_ping_pong_min_cycles(4));
         let args = json!({});
 
         // 5 cycles = 10 calls.  The 10th call (completing cycle 5) triggers Block.
@@ -719,7 +748,7 @@ mod tests {
 
     #[test]
     fn ping_pong_detects_alternation_with_varying_args() {
-        let mut det = LoopDetector::new(default_config());
+        let mut det = LoopDetector::new(config_with_ping_pong_min_cycles(4));
 
         // A->B->A->B with different args each time — ping-pong cares only
         // about tool names, not argument equality.
