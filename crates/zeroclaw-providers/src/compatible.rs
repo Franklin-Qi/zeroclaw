@@ -1961,7 +1961,10 @@ struct UsageInfo {
     /// Wrong-shaped details (string / array / scalar) degrade to absent
     /// metadata instead of failing the whole usage object — matching the
     /// pre-carrier behavior where this field was ignored.
-    #[serde(default, deserialize_with = "deserialize_optional_completion_tokens_details")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_completion_tokens_details"
+    )]
     completion_tokens_details: Option<CompletionTokensDetails>,
     #[serde(default, deserialize_with = "deserialize_optional_token_count")]
     prompt_cache_hit_tokens: Option<u64>,

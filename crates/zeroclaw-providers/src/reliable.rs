@@ -1907,9 +1907,7 @@ pub(crate) fn accumulate_usage(total: &mut Option<TokenUsage>, usage: Option<&To
                 cache_creation_input_tokens: usage.cache_creation_input_tokens,
                 reasoning_tokens: usage.reasoning_tokens,
                 provider_total_tokens: usage.provider_total_tokens,
-                provider_cost_usd: usage
-                    .provider_cost_usd
-                    .filter(|cost| cost.is_finite()),
+                provider_cost_usd: usage.provider_cost_usd.filter(|cost| cost.is_finite()),
             });
         }
         Some(accumulated) => {

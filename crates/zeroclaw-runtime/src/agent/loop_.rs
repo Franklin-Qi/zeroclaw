@@ -19435,8 +19435,8 @@ Let me check the result."#;
                     output_tokens: Some(120),
                     cached_input_tokens: None,
                     cache_creation_input_tokens: None,
-            ..Default::default()
-        }),
+                    ..Default::default()
+                }),
                 reasoning_content: None,
             }]))),
             capabilities: ProviderCapabilities::default(),
