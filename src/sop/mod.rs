@@ -16,12 +16,12 @@ pub fn handle_command(command: crate::SopCommands, config: &crate::config::Confi
 
     match command {
         crate::SopCommands::List => {
-            if sops.is_empty() {
+            if sops.is_empty() && load_failures.is_empty() {
                 println!("{}", get_required_cli_string("cli-sop-none"));
                 println!();
                 println!("{}", get_required_cli_string("cli-sop-create-hint"));
                 println!("{}", get_required_cli_string("cli-sop-create-hint-2"));
-            } else {
+            } else if !sops.is_empty() {
                 println!(
                     "{}",
                     get_required_cli_string_with_args(
@@ -50,7 +50,22 @@ pub fn handle_command(command: crate::SopCommands, config: &crate::config::Confi
                     );
                 }
             }
+            for (dir, error) in &load_failures {
+                println!(
+                    "  {}",
+                    get_required_cli_string_with_args(
+                        "cli-sop-load-failed",
+                        &[("name", dir.as_str()), ("error", error.as_str())],
+                    )
+                );
+            }
             println!();
+            if !load_failures.is_empty() {
+                anyhow::bail!(get_required_cli_string_with_args(
+                    "cli-sop-load-failed-summary",
+                    &[("count", &load_failures.len().to_string())],
+                ));
+            }
             Ok(())
         }
         crate::SopCommands::Validate { name } => {
