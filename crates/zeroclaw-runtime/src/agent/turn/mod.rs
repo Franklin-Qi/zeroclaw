@@ -6172,6 +6172,7 @@ mod active_route_context_tests {
                 output_tokens: Some(100),
                 cached_input_tokens: None,
                 cache_creation_input_tokens: None,
+                ..Default::default()
             }),
             reasoning_content: None,
         };

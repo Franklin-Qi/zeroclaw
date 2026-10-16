@@ -2110,6 +2110,7 @@ impl AnthropicModelProvider {
                 output_tokens: usage.output_tokens,
                 cached_input_tokens: usage.cache_read_input_tokens,
                 cache_creation_input_tokens: usage.cache_creation_input_tokens,
+                ..Default::default()
             }
         })
     }
@@ -2712,6 +2713,7 @@ impl AnthropicModelProvider {
                                 output_tokens,
                                 cached_input_tokens,
                                 cache_creation_input_tokens,
+                                ..Default::default()
                             })
                         } else {
                             None
@@ -2796,6 +2798,7 @@ impl AnthropicModelProvider {
                                 output_tokens,
                                 cached_input_tokens,
                                 cache_creation_input_tokens,
+                                ..Default::default()
                             })))
                             .await;
                     }
@@ -10396,6 +10399,7 @@ data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"refusal\"},\"usag
                     output_tokens: Some(0),
                     cached_input_tokens: Some(100),
                     cache_creation_input_tokens: Some(50),
+                    ..
                 })
             }
         ));

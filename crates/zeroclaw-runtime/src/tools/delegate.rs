@@ -19387,6 +19387,7 @@ command = "rm independent-delegate-marker"
             cached_input_tokens: None,
             cache_creation_input_tokens: None,
             output_tokens: Some(200),
+            ..Default::default()
         };
 
         let parent_ctx =
@@ -20770,6 +20771,7 @@ command = "rm independent-delegate-marker"
                     cached_input_tokens: None,
                     cache_creation_input_tokens: None,
                     output_tokens: Some(200),
+                    ..Default::default()
                 }),
                 reasoning_content: None,
             })
@@ -20889,6 +20891,7 @@ command = "rm independent-delegate-marker"
                     cached_input_tokens: None,
                     cache_creation_input_tokens: None,
                     output_tokens: Some(200),
+                    ..Default::default()
                 }),
                 reasoning_content: None,
             })
